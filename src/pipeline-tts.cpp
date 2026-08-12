@@ -609,6 +609,31 @@ qt_status pipeline_tts_synthesize(PipelineTTS *                pt,
         // codec_eos. Then run the upstream sampling chain.
         Timer t_host;
         apply_suppress(fw.logits_last.data(), talker_vocab, talker_vocab - 1024, talker_vocab, codec_eos_id);
+        // EOS guard (ABI v3): before the single sample, forbid a pre-floor codec_eos unless the model is
+        // confident. Deciding here (not after sampling) keeps exactly ONE draw — no philox re-draw and no
+        // re-sample of the sampler's exp-space buffer. Confidence is P(codec_eos) on the UNTEMPERED
+        // post-suppress softmax (independent of temperature / rep-penalty). Lazy: with min_codec_steps=0
+        // (default / abi<3) this whole block is skipped => byte-identical to today, hot path untouched.
+        const int guard_min = (params->abi_version >= 3) ? params->min_codec_steps : 0;
+        if (step < guard_min) {
+            const float guard_conf = params->eos_confidence_override;  // abi>=3 is implied by guard_min > 0
+            float max_logit = -INFINITY;
+            for (int i = 0; i < talker_vocab; i++) {
+                if (fw.logits_last[i] > max_logit) { max_logit = fw.logits_last[i]; }
+            }
+            double sum_exp = 0.0;
+            for (int i = 0; i < talker_vocab; i++) {
+                sum_exp += std::exp((double) (fw.logits_last[i] - max_logit));
+            }
+            const float eos_prob = (sum_exp > 0.0)
+                ? (float) (std::exp((double) (fw.logits_last[codec_eos_id] - max_logit)) / sum_exp)
+                : 0.0f;
+            if (eos_prob < guard_conf) {
+                fw.logits_last[codec_eos_id] = -INFINITY;  // forbid eos this step; the single sample takes a real token
+                qt_log(QT_LOG_DEBUG, "[Pipeline] EOS-guard suppressed pre-floor eos at step %d (p=%.3f < %.3f)",
+                       step, (double) eos_prob, (double) guard_conf);
+            }
+        }
         float u_c0 = 0.0f;
         int   c0 =
             sample_top_k_p(fw.logits_last.data(), talker_vocab, talker_T, params->top_k, params->top_p, talker_rp,

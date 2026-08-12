@@ -57,7 +57,7 @@ extern "C" {
 // git short hash + commit date string returned by qt_version(); for
 // binding compat checks, QT_ABI_VERSION is the only number that
 // matters.
-#define QT_ABI_VERSION 2
+#define QT_ABI_VERSION 3
 
 // Returns a static string of the form "<git-hash> (<date>)" identifying
 // the exact commit this binary was built from. Safe to call from any
@@ -320,6 +320,13 @@ struct qt_tts_params {
     int             ref_spk_dim;
     const int32_t * ref_codes;
     int             ref_T;
+
+    // ABI v3 tail: EOS guard. Read only when abi_version >= 3 (older callers zero-init this tail).
+    // min_codec_steps: floor of AR frames (12.5 Hz, so 75 = 6.0 s) before a *sampled* codec_eos is
+    //   allowed, unless it is confident. eos_confidence_override: P(codec_eos) at/above which eos is
+    //   honored regardless of the floor. Both measured/enforced in pipeline-tts.cpp.
+    int   min_codec_steps;
+    float eos_confidence_override;
 };
 
 // Initialise to the standard defaults. Strings NULL, seed -1,

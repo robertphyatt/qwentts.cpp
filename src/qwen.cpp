@@ -225,6 +225,8 @@ void qt_tts_default_params(struct qt_tts_params * p) {
     p->ref_spk_dim            = 0;
     p->ref_codes              = nullptr;
     p->ref_T                  = 0;
+    p->min_codec_steps         = 0;     // 0 => floor already met at step 0 => today's bare-break behavior
+    p->eos_confidence_override = 1.0f;  // inert at the default floor; the real value is set by the caller
 }
 
 int qt_num_codebooks(const struct qt_context * q) {
@@ -440,6 +442,13 @@ enum qt_status qt_synthesize(struct qt_context * q, const struct qt_tts_params *
         if (out) {
             qt_audio_free(out);
         }
+        return QT_STATUS_INVALID_PARAMS;
+    }
+    if (params->abi_version >= 3 &&
+        (params->min_codec_steps < 0 || params->eos_confidence_override < 0.0f ||
+         params->eos_confidence_override > 1.0f)) {
+        qt_set_error("qt_synthesize: invalid EOS-guard params (min_codec_steps=%d, eos_confidence_override=%f)",
+                     params->min_codec_steps, (double) params->eos_confidence_override);
         return QT_STATUS_INVALID_PARAMS;
     }
 
