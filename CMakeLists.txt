@@ -167,6 +167,29 @@ add_executable(qwen-tts tools/qwen-tts.cpp)
 target_link_libraries(qwen-tts PRIVATE qwen-core)
 link_ggml_backends(qwen-tts)
 
+# aa-voice-authoring-cli : Godot-free batch voice-authoring binary for
+# Artificial Adventures' voice catalog pipeline. Loads the authoring models
+# ONCE per batch of families instead of once per family/variant (see
+# tools/aa_voice_authoring_cli.cpp for the full contract). Links the two
+# Godot-free units addons/ai_inference_extension/src/ already factors out for
+# this purpose, straight from their source directory (not copied, not
+# modified) so `.voice` container bytes are identical by construction to the
+# shipped Godot runtime's containers:
+#   - qwen3_tts_qwentts_backend.{h,cpp} : the Backend adapter over this
+#     project's own qwen.h ABI (self-contained C++, no Godot dependency).
+#   - voice_container_core.{h,cpp}      : the Task-1 std `.voice`
+#     pack/inspect/decode core the Godot adapter also calls through.
+get_filename_component(AA_EXTENSION_SRC_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../src" ABSOLUTE)
+add_executable(aa-voice-authoring-cli
+    tools/aa_voice_authoring_cli.cpp
+    ${AA_EXTENSION_SRC_DIR}/qwen3_tts_qwentts_backend.cpp
+    ${AA_EXTENSION_SRC_DIR}/voice_container_core.cpp
+)
+target_include_directories(aa-voice-authoring-cli PRIVATE ${AA_EXTENSION_SRC_DIR})
+target_link_libraries(aa-voice-authoring-cli PRIVATE qwen-core yyjson)
+link_ggml_backends(aa-voice-authoring-cli)
+
 # tts-server : OpenAI-compatible HTTP server over the TTS pipeline.
 # Always built : it is part of the project, not an optional add-on.
 add_executable(tts-server tools/tts-server.cpp)
