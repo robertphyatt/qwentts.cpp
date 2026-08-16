@@ -102,6 +102,49 @@ if [ "$PARITY_RC" -ne 0 ]; then
 fi
 
 echo
+echo "=== (a3) listening_line_count plan-param (model-free --validate-plan) ==="
+mkdir -p "$SMOKE_DIR"
+VP_DIR="$SMOKE_DIR/validate-plan"
+rm -rf "$VP_DIR"; mkdir -p "$VP_DIR"
+
+_write_plan() {  # $1 = file, $2 = extra JSON fragment for root (or empty)
+  cat > "$1" <<JSON
+{ "q4_base":"x","q8_voicedesign":"x","q4_tok":"x","q8_tok":"x","out_dir":"$VP_DIR/out"$2,
+  "families":[{"family_id":"fam","variants":[{"variant_index":0,"seed":1,
+  "maturity_archetype":"a","vocal_presentation_archetype":"a","register_archetype":"a",
+  "vocal_mechanism_archetype":"a","temperament_voice_archetype":"a","accent_archetype":"a",
+  "voice_design_prompt":"a","reference_text":"a","reference_language":"en",
+  "voice_design_model":"a","voice_design_model_revision":"a","base_model":"a","base_model_revision":"a"}]}]}
+JSON
+}
+
+_write_plan "$VP_DIR/absent.json" ""
+_write_plan "$VP_DIR/zero.json"   ', "listening_line_count":0'
+_write_plan "$VP_DIR/two.json"    ', "listening_line_count":2'
+_write_plan "$VP_DIR/over.json"   ', "listening_line_count":5'
+_write_plan "$VP_DIR/neg.json"    ', "listening_line_count":-1'
+
+_expect_ok() {  # $1 = plan, $2 = expected count
+  set +e; local out; out="$("$CLI" --validate-plan "$1")"; local rc=$?; set -e
+  if [ "$rc" -ne 0 ] || [ "$out" != "listening_line_count=$2" ]; then
+    echo "FAIL: --validate-plan $1 -> rc=$rc out=$out (expected rc=0 out=listening_line_count=$2)"; exit 1
+  fi
+  echo "OK: $(basename "$1") -> $out"
+}
+_expect_reject() {  # $1 = plan
+  set +e; "$CLI" --validate-plan "$1" >/dev/null 2>&1; local rc=$?; set -e
+  if [ "$rc" -eq 0 ]; then echo "FAIL: --validate-plan $1 should reject (got rc=0)"; exit 1; fi
+  echo "OK: $(basename "$1") rejected (rc=$rc)"
+}
+
+_expect_ok     "$VP_DIR/absent.json" 4
+_expect_ok     "$VP_DIR/zero.json"   0
+_expect_ok     "$VP_DIR/two.json"    2
+_expect_reject "$VP_DIR/over.json"
+_expect_reject "$VP_DIR/neg.json"
+echo "PASS: (a3) listening_line_count plan-param"
+
+echo
 echo "=== (b) 1-family batch smoke ==="
 rm -rf "$SMOKE_DIR"
 mkdir -p "$SMOKE_DIR"

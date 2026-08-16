@@ -116,6 +116,7 @@
 
 #include "yyjson.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -353,6 +354,7 @@ struct BatchPlan {
     std::string q4_tok;
     std::string q8_tok;
     std::string out_dir;
+    int64_t listening_line_count = 4;  // optional plan field; absent -> full set (Godot-path parity)
     std::vector<FamilyPlan> families;
 };
 
@@ -446,6 +448,26 @@ bool parse_plan(const std::string &path, BatchPlan &out, std::string &error) {
               json_require_str(root, "q4_tok", out.q4_tok, error) &&
               json_require_str(root, "q8_tok", out.q8_tok, error) &&
               json_require_str(root, "out_dir", out.out_dir, error);
+    if (ok) {
+        // Optional. Absent -> keep the struct default (4). Present -> must be an
+        // int in [0, LISTENING_LINES.size()]; fail-closed otherwise (hard-fail posture).
+        yyjson_val *llc = yyjson_obj_get(root, "listening_line_count");
+        if (llc) {
+            if (!yyjson_is_int(llc)) {
+                error = "listening_line_count must be an integer";
+                ok = false;
+            } else {
+                int64_t n = yyjson_get_sint(llc);
+                if (n < 0 || n > static_cast<int64_t>(LISTENING_LINES.size())) {
+                    error = "listening_line_count out of range [0, " +
+                            std::to_string(LISTENING_LINES.size()) + "]: " + std::to_string(n);
+                    ok = false;
+                } else {
+                    out.listening_line_count = n;
+                }
+            }
+        }
+    }
     if (ok) {
         yyjson_val *families = yyjson_obj_get(root, "families");
         if (!families || !yyjson_is_arr(families) || yyjson_arr_size(families) == 0) {
@@ -787,7 +809,9 @@ int run_batch(const std::string &plan_path) {
             row.reload_status = "ok";
             row.listening_seed = LISTENING_SEED;
 
-            for (size_t line_index = 0; line_index < LISTENING_LINES.size(); ++line_index) {
+            const size_t listen_count =
+                std::min(static_cast<size_t>(plan.listening_line_count), LISTENING_LINES.size());
+            for (size_t line_index = 0; line_index < listen_count; ++line_index) {
                 std::vector<uint8_t> pcm16;
                 const int gen_rc = runtime_backend.generate_streaming(
                     LISTENING_LINES[line_index],
@@ -867,6 +891,16 @@ int main(int argc, char **argv) {
             plan_path = argv[++i];
         } else if (std::strcmp(argv[i], "--selftest-pcm16") == 0) {
             selftest = true;
+        } else if (std::strcmp(argv[i], "--validate-plan") == 0 && i + 1 < argc) {
+            const std::string validate_path = argv[++i];
+            BatchPlan plan;
+            std::string error;
+            if (!parse_plan(validate_path, plan, error)) {
+                fprintf(stderr, "[aa-voice-authoring-cli] FATAL: %s\n", error.c_str());
+                return 1;
+            }
+            std::printf("listening_line_count=%lld\n", static_cast<long long>(plan.listening_line_count));
+            return 0;
         } else {
             fatal(std::string("unknown or incomplete argument: ") + argv[i]);
             return 1;
