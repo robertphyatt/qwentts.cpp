@@ -36,6 +36,7 @@
 //   "q4_tok":          "<abs path to qwen-tokenizer-12hz-Q4_K_M.gguf>",
 //   "q8_tok":          "<abs path to qwen-tokenizer-12hz-Q8_0.gguf>",
 //   "out_dir":         "<abs dir; artifacts land at <out_dir>/<family_id>/<variant_index>/...>",
+//   "listening_line_count": <OPTIONAL int, 0..len(LISTENING_LINES)(=4); absent -> 4 = full listening set>,
 //   "families": [
 //     {
 //       "family_id": "<string>",
@@ -62,7 +63,8 @@
 //   ]
 // }
 //
-// All fields required, string-typed unless noted; "seed" and
+// All fields required EXCEPT the optional root "listening_line_count",
+// string-typed unless noted; "seed" and
 // "variant_index" must be bare JSON integers (not strings) so yyjson parses
 // them exactly (no double round-trip). The 4 model path basenames are
 // validated against the exact filenames qwen3_tts.cpp's exact_filename()
@@ -75,7 +77,9 @@
 // script receives — this CLI adds the <family_id> path segment itself
 // since one batch spans multiple families):
 //   reference.wav, reference.spk, reference.rvq, reference.voice,
-//   bundle.json, line_1.wav, line_2.wav, line_3.wav, line_4.wav
+//   bundle.json, and line_1.wav .. line_<listening_line_count>.wav
+//   (NO line_N.wav clips when listening_line_count is 0; up to line_4.wav at
+//   the default of 4)
 //
 // One results.csv is written PER FAMILY, at <out_dir>/<family_id>/results.csv
 // (not a single batch-root file) — grounded on run_isolated_godot.py's
@@ -95,6 +99,11 @@
 //
 // Modes:
 //   --plan <path>       batch mode (above contract)
+//   --validate-plan <path>  parse + validate a plan JSON (NO model load);
+//                        prints "listening_line_count=<n>" then exits 0, or
+//                        prints a FATAL to stderr and exits nonzero on any
+//                        parse/range error. Model-free; exercised by the (a3)
+//                        section of test_aa_voice_authoring_cli.sh.
 //   --selftest-pcm16     converts a fixed float vector through the exact
 //                        qwen3_tts.cpp:1044-1049 conversion and prints the
 //                        resulting int16 values, space-separated, then exits
@@ -910,7 +919,7 @@ int main(int argc, char **argv) {
         return run_selftest_pcm16();
     }
     if (plan_path.empty()) {
-        fatal("usage: aa-voice-authoring-cli --plan <batch-plan.json> | --selftest-pcm16");
+        fatal("usage: aa-voice-authoring-cli --plan <batch-plan.json> | --validate-plan <batch-plan.json> | --selftest-pcm16");
         return 1;
     }
     return run_batch(plan_path);
