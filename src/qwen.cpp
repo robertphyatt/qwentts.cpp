@@ -481,8 +481,13 @@ enum qt_status qt_synthesize(struct qt_context * q, const struct qt_tts_params *
         }
         return QT_STATUS_MODE_INVALID;
     }
-    if (mt == "custom_voice" && !params->speaker) {
-        qt_set_error("custom_voice models require --speaker");
+    // ABI v2 latent reference fields (moved above the custom_voice gate so an
+    // injected x-vector counts as the speaker for custom_voice).
+    const bool has_lat_spk   = params->abi_version >= 2 && params->ref_spk_emb && params->ref_spk_dim > 0;
+    const bool has_lat_codes = params->abi_version >= 2 && params->ref_codes && params->ref_T > 0;
+
+    if (mt == "custom_voice" && !params->speaker && !has_lat_spk) {
+        qt_set_error("custom_voice models require --speaker or an injected --ref-spk");
         if (out) {
             qt_audio_free(out);
         }
@@ -495,12 +500,15 @@ enum qt_status qt_synthesize(struct qt_context * q, const struct qt_tts_params *
         }
         return QT_STATUS_MODE_INVALID;
     }
-    // ABI v2 latent reference fields, same gate as the pipeline.
-    const bool has_lat_spk   = params->abi_version >= 2 && params->ref_spk_emb && params->ref_spk_dim > 0;
-    const bool has_lat_codes = params->abi_version >= 2 && params->ref_codes && params->ref_T > 0;
-
-    if ((params->ref_audio_24k || has_lat_spk) && mt != "base") {
-        qt_set_error("--ref-wav / --ref-spk is only valid for base models (loaded: %s)", mt.c_str());
+    if (params->ref_audio_24k && mt != "base") {
+        qt_set_error("--ref-wav is only valid for base models (loaded: %s)", mt.c_str());
+        if (out) {
+            qt_audio_free(out);
+        }
+        return QT_STATUS_MODE_INVALID;
+    }
+    if (has_lat_spk && mt != "base" && mt != "custom_voice") {
+        qt_set_error("--ref-spk is only valid for base or custom_voice models (loaded: %s)", mt.c_str());
         if (out) {
             qt_audio_free(out);
         }
